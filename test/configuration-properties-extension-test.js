@@ -26,11 +26,24 @@ describe('configuration-properties-extension', () => {
   }
 
   const addConfigurationMetadataFixture = (property = {}, ...rest) => {
-    const { name = 'foo.bar.baz', type = 'java.lang.String', deprecation } = property
-    const data = { properties: [{ name, type: type ?? undefined, deprecation }] }
+    const { name = 'foo.bar.baz', type = 'java.lang.String', deprecation, description, defaultValue } = property
+    const data = {
+      properties: [{
+        name,
+        description: description ?? undefined,
+        defaultValue: defaultValue ?? undefined,
+        type: type ?? undefined,
+        deprecation
+      }]
+    }
     if (rest.length) {
       rest.forEach((it) =>
-        data.properties.push({ name: it.name, type: it.type || 'java.lang.String', deprecation: it.deprecation })
+        data.properties.push({
+            name: it.name,
+            description: it.description || undefined,
+            defaultValue: it.defaultValue || undefined,
+            type: it.type || 'java.lang.String',
+            deprecation: it.deprecation })
       )
     }
     addFile({ family: 'partial', relative: 'acme-core/spring-configuration-metadata.json' }, JSON.stringify(data))
@@ -105,6 +118,7 @@ describe('configuration-properties-extension', () => {
       const extensions = run().getExtensions()
       expect(extensions.getBlocks()).to.have.lengthOf(1)
       expect(extensions.getInlineMacros()).to.have.lengthOf(1)
+      expect(extensions.getBlockMacros()).to.have.lengthOf(1)
     })
   })
 
@@ -806,6 +820,37 @@ describe('configuration-properties-extension', () => {
         const propertiesBlock = actual.findBy({ context: 'listing' })[0]
         expect(propertiesBlock.getSourceLines()).to.eql(expected)
       })
+    })
+  })
+  describe('configprops block macro', () => {
+    it('should create table of all properties matching prefix', () => {
+      addConfigurationMetadataFixture({ name: 'com.example.alpha.one', description: "Alpha one" },
+        { name: 'com.example.alpha.two', description: "Alpha two", defaultValue: 5 },
+        { name: 'com.example.alpha.three.four', description: "Alpha three four", defaultValue: [ "one", "two" ] },
+        { name: 'com.example.alpha.bravo.one', description: "Bravo one" })
+      const input = heredoc`
+      = Page Title
+
+      configprops::com.example.alpha[]
+      `
+      const actual = run(input, { convert: true })
+      expect(actual).to.include('<code>com.example.alpha.one</code>')
+      expect(actual).to.include('<code>com.example.alpha.two</code>')
+      expect(actual).to.include('<code>com.example.alpha.three.four</code>')
+      expect(actual).not.to.include('<code>com.example.bravo.one</code>')
+      expect(messages).to.be.empty()
+    })
+
+    it('should warn if no properties matching prefix are found', () => {
+      addConfigurationMetadataFixture()
+      const input = heredoc`
+      = Page Title
+
+      configprops::com.example.alpha[]
+      `
+      run(input)
+      expect(messages).to.have.lengthOf(1)
+      expect(messages[0].message.text).to.equal('found no configuration properties with prefix com.example.alpha')
     })
   })
 })
